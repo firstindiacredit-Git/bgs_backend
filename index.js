@@ -58,6 +58,12 @@ const API_CONFIGS = {
       'x-rapidapi-key': 'ed98e198d3msha2890b3dde9a12dp1e7caejsnf255bf4ce34c',
       'x-rapidapi-host': 'imdb-top-100-movies.p.rapidapi.com'
     }
+  },
+  news: {
+    url: 'https://newsdata.io/api/1/news?apikey=pub_63909ffdc676cafdb2b6287a51da5f0e581ff&country=in&language=en',
+    headers: {
+      'Content-Type': 'application/json'
+    }
   }
 };
 
@@ -107,8 +113,16 @@ async function fetchAndCacheData(apiName, params = {}) {
     }
 
     const data = await response.json();
-    let processedData = config.processData ? config.processData(data) : data;
+    
+    // Special handling for news API response
+    let processedData;
+    if (apiName === 'news') {
+      processedData = data.results || [];
+    } else {
+      processedData = config.processData ? config.processData(data) : data;
+    }
 
+    // Store in Firestore
     if (apiName === 'stocks') {
       processedData = processedData.slice(0, 100);
       
@@ -138,7 +152,7 @@ async function fetchAndCacheData(apiName, params = {}) {
       batch.set(metadataRef, {
         timestamp: now,
         chunks: chunks.length,
-        totalItems: processedData.length
+        totalItems: processedData.length || 0  // Ensure we always have a number
       });
 
       chunks.forEach((chunk, index) => {
