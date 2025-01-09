@@ -32,8 +32,8 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// Cache duration in milliseconds (e.g., 1 hour)
-const CACHE_DURATION = 60 * 60 * 1000;
+// Cache duration in milliseconds (e.g., 12 hour)
+const CACHE_DURATION = 12 * 60 * 60 * 1000;
 
 const API_CONFIGS = {
   cars: {
