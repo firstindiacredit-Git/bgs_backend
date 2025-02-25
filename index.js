@@ -70,11 +70,20 @@ const API_CONFIGS = {
   },
   gnews: {
     url: (query) =>
-      `https://gnews.io/api/v4/top-headlines?q=${query}&apikey=${process.env.NEWS_API_KEY}`,
+      `https://gnews.io/api/v4/top-headlines?q=${query || "general"}&apikey=${
+        process.env.NEWS_API_KEY
+      }`,
     headers: {
       "Content-Type": "application/json",
     },
-    processData: (data) => data.articles || [], // Extract articles from the response
+    processData: (data) => {
+      if (!data || !data.articles) {
+        console.error("❌ GNews API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.articles.length} GNews items`);
+      return data.articles;
+    },
   },
   sports: {
     url: `https://www.scorebat.com/video-api/v3/feed/?token=${process.env.MATCH_KEY}`,
@@ -106,12 +115,13 @@ const API_CONFIGS = {
 };
 
 async function fetchAndCacheData(apiName, params = {}) {
-  const baseDocRef =
-    apiName === "gnews"
-      ? `${apiName}-${params.query || "general"}`
-      : `${apiName}-${params.year || ""}`;
-
   try {
+    // For GNews, use the query parameter as part of the cache key
+    const baseDocRef =
+      apiName === "gnews"
+        ? `gnews-${(params.query || "general").toLowerCase()}` // Cache key includes the category
+        : `${apiName}-${params.year || ""}`;
+
     const metadataRef = db.collection("top100").doc(`${baseDocRef}-metadata`);
     const metadataDoc = await metadataRef.get();
     const now = Date.now();
@@ -119,24 +129,12 @@ async function fetchAndCacheData(apiName, params = {}) {
     if (metadataDoc.exists) {
       const metadata = metadataDoc.data();
       if (now - metadata.timestamp < CACHE_DURATION) {
-        console.log(`🚀 [${apiName}] Serving cached data for:`, baseDocRef);
         console.log(
-          `Cache age: ${Math.round(
-            (now - metadata.timestamp) / 1000 / 60
-          )} minutes old`
+          `🚀 [${apiName}] Serving cached data for category:`,
+          params.query || "general"
         );
 
-        if (apiName === "stocks") {
-          const stocksDoc = await db
-            .collection("top100")
-            .doc(`${baseDocRef}-chunk-0`)
-            .get();
-
-          if (stocksDoc.exists && stocksDoc.data().items.length > 0) {
-            return stocksDoc.data().items;
-          }
-        }
-        // For other categories, continue with multiple chunks
+        // Retrieve the cached data for this category
         const chunks = [];
         for (let i = 0; i < metadata.chunks; i++) {
           const chunkDoc = await db
@@ -147,7 +145,6 @@ async function fetchAndCacheData(apiName, params = {}) {
             chunks.push(...chunkDoc.data().items);
           }
         }
-        console.log(`📦 Retrieved ${chunks.length} items from cache`);
         return chunks;
       } else {
         console.log(`⏰ [${apiName}] Cache expired for:`, baseDocRef);
@@ -162,8 +159,8 @@ async function fetchAndCacheData(apiName, params = {}) {
     }
 
     console.log(
-      `🌐 [${apiName}] Fetching fresh data from API for:`,
-      baseDocRef
+      `🌐 [${apiName}] Fetching fresh data for category:`,
+      params.query || "general"
     );
     const config = API_CONFIGS[apiName];
     const url =
@@ -340,13 +337,16 @@ cleanupStocksChunks();
 app.get("/api/top100/:category", async (req, res) => {
   try {
     const { category } = req.params;
+    const { query } = req.query; // Get the query parameter for GNews categories
 
     if (!API_CONFIGS[category]) {
       console.error(`❌ Invalid category requested: ${category}`);
       return res.status(400).json({ error: `Invalid category: ${category}` });
     }
 
-    console.log(`🎮 Processing request for category: ${category}`);
+    console.log(
+      `🎮 Processing request for ${category}${query ? ` (${query})` : ""}`
+    );
 
     if (category === "sports") {
       // Check cache first
@@ -366,15 +366,19 @@ app.get("/api/top100/:category", async (req, res) => {
       }
     }
 
-    const data = await fetchAndCacheData(category);
+    const data = await fetchAndCacheData(category, { query });
 
     if (!data || data.length === 0) {
-      console.log(`⚠️ No data returned for category: ${category}`);
+      console.log(
+        `⚠️ No data returned for ${category}${query ? ` (${query})` : ""}`
+      );
       return res.json([]);
     }
 
     console.log(
-      `✅ Successfully returned ${data.length} items for ${category}`
+      `✅ Successfully returned ${data.length} items for ${category}${
+        query ? ` (${query})` : ""
+      }`
     );
     res.json(data);
   } catch (error) {
