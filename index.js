@@ -353,17 +353,18 @@ app.get("/api/top100/:category", async (req, res) => {
     if (category === "sports") {
       // Check cache first
       const cacheDoc = await db.collection("top100").doc("sports-data").get();
-      const metadataDoc = await db
-        .collection("top100")
-        .doc("sports-metadata")
-        .get();
 
-      if (cacheDoc.exists && metadataDoc.exists) {
-        const metadata = metadataDoc.data();
-        if (Date.now() - metadata.timestamp < CACHE_DURATION) {
+      if (cacheDoc.exists) {
+        const cacheData = cacheDoc.data();
+        if (Date.now() - cacheData.timestamp < CACHE_DURATION) {
           console.log("📦 Returning cached sports data");
-          return res.json(cacheDoc.data().items);
+          console.log(`Found ${cacheData.items.length} items in cache`);
+          return res.json(cacheData.items);
+        } else {
+          console.log("⏰ Sports cache expired, fetching fresh data");
         }
+      } else {
+        console.log("🆕 No sports cache found, fetching fresh data");
       }
     }
 
