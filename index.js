@@ -94,6 +94,13 @@ async function fetchAndCacheData(apiName, params = {}) {
     if (metadataDoc.exists) {
       const metadata = metadataDoc.data();
       if (now - metadata.timestamp < CACHE_DURATION) {
+        console.log(`🚀 [${apiName}] Serving cached data for:`, baseDocRef);
+        console.log(
+          `Cache age: ${Math.round(
+            (now - metadata.timestamp) / 1000 / 60
+          )} minutes old`
+        );
+
         if (apiName === "stocks") {
           const stocksDoc = await db
             .collection("top100")
@@ -115,10 +122,24 @@ async function fetchAndCacheData(apiName, params = {}) {
             chunks.push(...chunkDoc.data().items);
           }
         }
+        console.log(`📦 Retrieved ${chunks.length} items from cache`);
         return chunks;
+      } else {
+        console.log(`⏰ [${apiName}] Cache expired for:`, baseDocRef);
+        console.log(
+          `Cache was ${Math.round(
+            (now - metadata.timestamp) / 1000 / 60
+          )} minutes old`
+        );
       }
+    } else {
+      console.log(`🆕 [${apiName}] No cache found for:`, baseDocRef);
     }
 
+    console.log(
+      `🌐 [${apiName}] Fetching fresh data from API for:`,
+      baseDocRef
+    );
     const config = API_CONFIGS[apiName];
     const url =
       typeof config.url === "function" ? config.url(params.year) : config.url;
@@ -140,6 +161,11 @@ async function fetchAndCacheData(apiName, params = {}) {
     } else {
       processedData = config.processData ? config.processData(data) : data;
     }
+
+    console.log(
+      `✨ [${apiName}] Successfully fetched ${processedData.length} items from API`
+    );
+    console.log(`💾 Storing data in cache for:`, baseDocRef);
 
     // Store in Firestore
     if (apiName === "stocks") {
@@ -186,7 +212,7 @@ async function fetchAndCacheData(apiName, params = {}) {
 
     return processedData;
   } catch (error) {
-    console.error(`Error fetching ${apiName}:`, error);
+    console.error(`❌ Error fetching ${apiName}:`, error);
     return [];
   }
 }
