@@ -78,6 +78,21 @@ const API_CONFIGS = {
     },
     processData: (data) => data.articles || [], // Extract articles from the response
   },
+  sports: {
+    url: `https://www.scorebat.com/video-api/v3/feed/?token=${process.env.MATCH_KEY}`,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    processData: (data) => {
+      console.log("📊 Raw sports data:", data); // Debug log
+      if (!data || !data.response) {
+        console.warn("⚠️ Invalid sports data structure:", data);
+        return [];
+      }
+      return data.response;
+    },
+  },
 };
 
 async function fetchAndCacheData(apiName, params = {}) {
@@ -143,6 +158,47 @@ async function fetchAndCacheData(apiName, params = {}) {
     const config = API_CONFIGS[apiName];
     const url =
       typeof config.url === "function" ? config.url(params.query) : config.url;
+
+    if (apiName === "sports") {
+      console.log(
+        "🎯 Fetching sports data with token:",
+        process.env.MATCH_KEY ? "Token exists" : "No token!"
+      );
+
+      const response = await fetch(config.url, {
+        headers: config.headers,
+        method: "GET",
+      });
+
+      if (!response.ok) {
+        console.error(
+          `🔴 Sports API error: ${response.status} - ${response.statusText}`
+        );
+        throw new Error(`Sports API failed with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(
+        "✅ Sports API response received:",
+        data ? "Data exists" : "No data"
+      );
+
+      let processedData = config.processData(data);
+
+      // Cache the processed data
+      await db.collection("top100").doc("sports-data").set({
+        items: processedData,
+        timestamp: Date.now(),
+      });
+
+      await metadataRef.set({
+        timestamp: Date.now(),
+        chunks: 1,
+        totalItems: processedData.length,
+      });
+
+      return processedData;
+    }
 
     const response = await fetch(url, { headers: config.headers || {} });
 
@@ -210,8 +266,8 @@ async function fetchAndCacheData(apiName, params = {}) {
 
     return processedData;
   } catch (error) {
-    console.error(`❌ Error fetching ${apiName}:`, error);
-    return [];
+    console.error(`❌ Error in fetchAndCacheData for ${apiName}:`, error);
+    throw error;
   }
 }
 
@@ -274,17 +330,48 @@ cleanupStocksChunks();
 app.get("/api/top100/:category", async (req, res) => {
   try {
     const { category } = req.params;
-    const { year } = req.query;
 
     if (!API_CONFIGS[category]) {
-      return res.status(400).json({ error: "Invalid category" });
+      console.error(`❌ Invalid category requested: ${category}`);
+      return res.status(400).json({ error: `Invalid category: ${category}` });
     }
 
-    const data = await fetchAndCacheData(category, { year });
+    console.log(`🎮 Processing request for category: ${category}`);
+
+    if (category === "sports") {
+      // Check cache first
+      const cacheDoc = await db.collection("top100").doc("sports-data").get();
+      const metadataDoc = await db
+        .collection("top100")
+        .doc("sports-metadata")
+        .get();
+
+      if (cacheDoc.exists && metadataDoc.exists) {
+        const metadata = metadataDoc.data();
+        if (Date.now() - metadata.timestamp < CACHE_DURATION) {
+          console.log("📦 Returning cached sports data");
+          return res.json(cacheDoc.data().items);
+        }
+      }
+    }
+
+    const data = await fetchAndCacheData(category);
+
+    if (!data || data.length === 0) {
+      console.log(`⚠️ No data returned for category: ${category}`);
+      return res.json([]);
+    }
+
+    console.log(
+      `✅ Successfully returned ${data.length} items for ${category}`
+    );
     res.json(data);
   } catch (error) {
-    console.error("Error in /api/top100/:category:", error);
-    res.status(500).json({ error: error.message });
+    console.error(`❌ Error processing ${req.params.category}:`, error);
+    res.status(500).json({
+      error: "Failed to fetch data",
+      details: error.message,
+    });
   }
 });
 
