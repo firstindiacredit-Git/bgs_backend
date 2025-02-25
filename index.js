@@ -70,9 +70,7 @@ const API_CONFIGS = {
   },
   gnews: {
     url: (query) =>
-      `https://gnews.io/api/v4/top-headlines?q=${query || "general"}&apikey=${
-        process.env.NEWS_API_KEY
-      }`,
+      `https://gnews.io/api/v4/top-headlines?q=${query}&apikey=${process.env.NEWS_API_KEY}`,
     headers: {
       "Content-Type": "application/json",
     },
