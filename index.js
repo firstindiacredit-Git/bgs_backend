@@ -142,11 +142,9 @@ async function fetchAndCacheData(apiName, params = {}) {
     );
     const config = API_CONFIGS[apiName];
     const url =
-      typeof config.url === "function" ? config.url(params.year) : config.url;
+      typeof config.url === "function" ? config.url(params.query) : config.url;
 
-    const response = await fetch(url, {
-      headers: config.headers || {},
-    });
+    const response = await fetch(url, { headers: config.headers || {} });
 
     if (!response.ok) {
       throw new Error(`API responded with status: ${response.status}`);
