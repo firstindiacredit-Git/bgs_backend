@@ -85,12 +85,24 @@ const API_CONFIGS = {
       Accept: "application/json",
     },
     processData: (data) => {
-      console.log("📊 Raw sports data:", data); // Debug log
-      if (!data || !data.response) {
-        console.warn("⚠️ Invalid sports data structure:", data);
+      console.log(
+        "📊 Sports API raw response:",
+        JSON.stringify(data).slice(0, 200)
+      ); // Log start of response
+
+      if (!data) {
+        console.error("❌ Sports API returned null/undefined data");
         return [];
       }
-      return data.response;
+
+      if (!data.response) {
+        console.error("❌ Sports API response missing 'response' field:", data);
+        return [];
+      }
+
+      const processedData = data.response;
+      console.log(`✅ Processed ${processedData.length} sports items`);
+      return processedData;
     },
   },
 };
@@ -160,10 +172,8 @@ async function fetchAndCacheData(apiName, params = {}) {
       typeof config.url === "function" ? config.url(params.query) : config.url;
 
     if (apiName === "sports") {
-      console.log(
-        "🎯 Fetching sports data with token:",
-        process.env.MATCH_KEY ? "Token exists" : "No token!"
-      );
+      console.log("🎯 Sports API URL:", config.url);
+      console.log("🔑 Match key exists:", !!process.env.MATCH_KEY);
 
       const response = await fetch(config.url, {
         headers: config.headers,
@@ -172,18 +182,20 @@ async function fetchAndCacheData(apiName, params = {}) {
 
       if (!response.ok) {
         console.error(
-          `🔴 Sports API error: ${response.status} - ${response.statusText}`
+          `🔴 Sports API HTTP error: ${response.status} ${response.statusText}`
         );
+        const errorText = await response.text();
+        console.error("Error details:", errorText);
         throw new Error(`Sports API failed with status: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log(
-        "✅ Sports API response received:",
-        data ? "Data exists" : "No data"
-      );
-
       let processedData = config.processData(data);
+
+      if (!processedData || processedData.length === 0) {
+        console.error("⚠️ Sports API returned no valid data");
+        throw new Error("No valid data received from Sports API");
+      }
 
       // Cache the processed data
       await db.collection("top100").doc("sports-data").set({
