@@ -189,160 +189,91 @@ const API_CONFIGS = {
 
 async function fetchAndCacheData(apiName, params = {}) {
   try {
-    // For GNews, use the query parameter as part of the cache key
-    const baseDocRef =
-      apiName === "gnews"
-        ? `gnews-${(params.query || "general").toLowerCase()}` // Cache key includes the category
-        : `${apiName}-${params.year || ""}`;
+    // Create a unique cache key for each sport and date
+    const baseDocRef = (() => {
+      switch (apiName) {
+        case "basketball":
+        case "baseball":
+        case "hockey":
+        case "volleyball":
+          return `${apiName}-${
+            params.query || new Date().toISOString().split("T")[0]
+          }`;
+        case "cricket":
+          return "cricket-data";
+        case "gnews":
+          return `gnews-${(params.query || "general").toLowerCase()}`;
+        default:
+          return `${apiName}-${params.year || ""}`;
+      }
+    })();
 
     const metadataRef = db.collection("top100").doc(`${baseDocRef}-metadata`);
     const metadataDoc = await metadataRef.get();
     const now = Date.now();
 
+    // Check cache
     if (metadataDoc.exists) {
       const metadata = metadataDoc.data();
       if (now - metadata.timestamp < CACHE_DURATION) {
         console.log(
-          `🚀 [${apiName}] Serving cached data for category:`,
-          params.query || "general"
+          `🚀 [${apiName}] Serving cached data for date:`,
+          params.query || "today"
         );
 
-        // Retrieve the cached data for this category
-        const chunks = [];
-        for (let i = 0; i < metadata.chunks; i++) {
-          const chunkDoc = await db
-            .collection("top100")
-            .doc(`${baseDocRef}-chunk-${i}`)
-            .get();
-          if (chunkDoc.exists) {
-            chunks.push(...chunkDoc.data().items);
-          }
+        // Retrieve cached data
+        const dataDoc = await db.collection("top100").doc(baseDocRef).get();
+        if (dataDoc.exists) {
+          return dataDoc.data().items;
         }
-        return chunks;
-      } else {
-        console.log(`⏰ [${apiName}] Cache expired for:`, baseDocRef);
-        console.log(
-          `Cache was ${Math.round(
-            (now - metadata.timestamp) / 1000 / 60
-          )} minutes old`
-        );
       }
-    } else {
-      console.log(`🆕 [${apiName}] No cache found for:`, baseDocRef);
     }
 
+    // Fetch fresh data
     console.log(
-      `🌐 [${apiName}] Fetching fresh data for category:`,
-      params.query || "general"
+      `🌐 [${apiName}] Fetching fresh data for date:`,
+      params.query || "today"
     );
     const config = API_CONFIGS[apiName];
     const url =
       typeof config.url === "function" ? config.url(params.query) : config.url;
 
-    if (apiName === "sports") {
-      console.log("🎯 Sports API URL:", config.url);
-      console.log("🔑 Match key exists:", !!process.env.MATCH_KEY);
-
-      const response = await fetch(config.url, {
-        headers: config.headers,
-        method: "GET",
-      });
-
-      if (!response.ok) {
-        console.error(
-          `🔴 Sports API HTTP error: ${response.status} ${response.statusText}`
-        );
-        const errorText = await response.text();
-        console.error("Error details:", errorText);
-        throw new Error(`Sports API failed with status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      let processedData = config.processData(data);
-
-      if (!processedData || processedData.length === 0) {
-        console.error("⚠️ Sports API returned no valid data");
-        throw new Error("No valid data received from Sports API");
-      }
-
-      // Cache the processed data
-      await db.collection("top100").doc("sports-data").set({
-        items: processedData,
-        timestamp: Date.now(),
-      });
-
-      await metadataRef.set({
-        timestamp: Date.now(),
-        chunks: 1,
-        totalItems: processedData.length,
-      });
-
-      return processedData;
-    }
-
-    const response = await fetch(url, { headers: config.headers || {} });
+    const response = await fetch(url, {
+      headers: config.headers || {},
+      ...(config.params && { params: config.params }),
+    });
 
     if (!response.ok) {
       throw new Error(`API responded with status: ${response.status}`);
     }
 
     const data = await response.json();
+    let processedData = config.processData ? config.processData(data) : data;
 
-    // Special handling for news API response
-    let processedData;
-    if (apiName === "news") {
-      processedData = data.results || [];
-    } else {
-      processedData = config.processData ? config.processData(data) : data;
-    }
-
-    console.log(
-      `✨ [${apiName}] Successfully fetched ${processedData.length} items from API`
-    );
-    console.log(`💾 Storing data in cache for:`, baseDocRef);
-
-    // Store in Firestore
+    // Special handling for stocks data
     if (apiName === "stocks") {
       processedData = processedData.slice(0, 100);
-
       if (processedData.length === 0) {
         throw new Error("No stocks data received from API");
       }
-
-      await db.collection("top100").doc(`${baseDocRef}-metadata`).set({
-        timestamp: now,
-        chunks: 1,
-        totalItems: processedData.length,
-      });
-
-      await db.collection("top100").doc(`${baseDocRef}-chunk-0`).set({
-        items: processedData,
-      });
-    } else {
-      // For other categories, continue with chunking
-      const CHUNK_SIZE = 100;
-      const chunks = [];
-
-      for (let i = 0; i < processedData.length; i += CHUNK_SIZE) {
-        chunks.push(processedData.slice(i, i + CHUNK_SIZE));
-      }
-
-      const batch = db.batch();
-      batch.set(metadataRef, {
-        timestamp: now,
-        chunks: chunks.length,
-        totalItems: processedData.length || 0, // Ensure we always have a number
-      });
-
-      chunks.forEach((chunk, index) => {
-        const chunkRef = db
-          .collection("top100")
-          .doc(`${baseDocRef}-chunk-${index}`);
-        batch.set(chunkRef, { items: chunk });
-      });
-
-      await batch.commit();
     }
+
+    // Cache the processed data
+    const batch = db.batch();
+
+    // Save metadata
+    batch.set(metadataRef, {
+      timestamp: now,
+      totalItems: processedData.length || 0,
+    });
+
+    // Save actual data
+    batch.set(db.collection("top100").doc(baseDocRef), {
+      items: processedData,
+    });
+
+    await batch.commit();
+    console.log(`✅ [${apiName}] Cached ${processedData.length} items`);
 
     return processedData;
   } catch (error) {
@@ -410,23 +341,32 @@ cleanupStocksChunks();
 app.get("/api/top100/:category", async (req, res) => {
   try {
     const { category } = req.params;
-    const { query, date } = req.query;
+    const { date } = req.query;
 
     if (!API_CONFIGS[category]) {
-      console.error(`❌ Invalid category requested: ${category}`);
       return res.status(400).json({ error: `Invalid category: ${category}` });
     }
 
     console.log(
-      `🎮 Processing request for ${category}${query ? ` (${query})` : ""}`
+      `🎮 Processing request for ${category}${date ? ` (${date})` : ""}`
     );
 
-    // Special handling for sports APIs that use dates
-    if (["basketball", "baseball", "hockey", "volleyball"].includes(category)) {
+    // Handle sports categories
+    if (
+      ["basketball", "baseball", "hockey", "volleyball", "cricket"].includes(
+        category
+      )
+    ) {
       try {
         const currentDate = date || new Date().toISOString().split("T")[0];
-        // Use the date as part of the cache key
         const data = await fetchAndCacheData(category, { query: currentDate });
+
+        if (!data || data.length === 0) {
+          console.log(`⚠️ No ${category} data available for ${currentDate}`);
+          return res.json([]);
+        }
+
+        console.log(`✅ Returned ${data.length} ${category} items`);
         return res.json(data);
       } catch (error) {
         console.error(`Error fetching ${category} data:`, error);
@@ -437,52 +377,18 @@ app.get("/api/top100/:category", async (req, res) => {
       }
     }
 
-    // Special handling for cricket API
-    if (category === "cricket") {
-      try {
-        // Try to get cached data first
-        const data = await fetchAndCacheData("cricket");
-        return res.json(data);
-      } catch (error) {
-        console.error("Error fetching cricket data:", error);
-        return res.status(500).json({
-          error: "Failed to fetch cricket data",
-          details: error.message,
-        });
-      }
-    }
-
-    if (category === "sports") {
-      // Check cache first
-      const cacheDoc = await db.collection("top100").doc("sports-data").get();
-
-      if (cacheDoc.exists) {
-        const cacheData = cacheDoc.data();
-        if (Date.now() - cacheData.timestamp < CACHE_DURATION) {
-          console.log("📦 Returning cached sports data");
-          console.log(`Found ${cacheData.items.length} items in cache`);
-          return res.json(cacheData.items);
-        } else {
-          console.log("⏰ Sports cache expired, fetching fresh data");
-        }
-      } else {
-        console.log("🆕 No sports cache found, fetching fresh data");
-      }
-    }
-
-    const data = await fetchAndCacheData(category, { query });
+    // Handle other categories
+    const data = await fetchAndCacheData(category, { query: date });
 
     if (!data || data.length === 0) {
       console.log(
-        `⚠️ No data returned for ${category}${query ? ` (${query})` : ""}`
+        `⚠️ No data returned for ${category}${date ? ` (${date})` : ""}`
       );
       return res.json([]);
     }
 
     console.log(
-      `✅ Successfully returned ${data.length} items for ${category}${
-        query ? ` (${query})` : ""
-      }`
+      `✅ Successfully returned ${data.length} items for ${category}`
     );
     res.json(data);
   } catch (error) {
