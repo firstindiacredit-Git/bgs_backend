@@ -112,6 +112,79 @@ const API_CONFIGS = {
       return processedData;
     },
   },
+  cricket: {
+    url: "https://api.cricapi.com/v1/cricScore",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    params: {
+      apikey: "0da59eab-0d6c-4950-b0ea-454786bb63e2",
+    },
+    processData: (data) => {
+      if (!data || !data.data) {
+        console.error("❌ Cricket API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.data.length} cricket matches`);
+      return data.data;
+    },
+  },
+  basketball: {
+    url: (date) => `https://v1.basketball.api-sports.io/games?date=${date}`,
+    headers: {
+      "x-apisports-key": "47f4d4ae2ec97f80df18a074084c523b",
+    },
+    processData: (data) => {
+      if (!data || !data.response) {
+        console.error("❌ Basketball API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.response.length} basketball games`);
+      return data.response;
+    },
+  },
+  baseball: {
+    url: (date) => `https://v1.baseball.api-sports.io/games?date=${date}`,
+    headers: {
+      "x-apisports-key": "47f4d4ae2ec97f80df18a074084c523b",
+    },
+    processData: (data) => {
+      if (!data || !data.response) {
+        console.error("❌ Baseball API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.response.length} baseball games`);
+      return data.response;
+    },
+  },
+  hockey: {
+    url: (date) => `https://v1.hockey.api-sports.io/games?date=${date}`,
+    headers: {
+      "x-apisports-key": "47f4d4ae2ec97f80df18a074084c523b",
+    },
+    processData: (data) => {
+      if (!data || !data.response) {
+        console.error("❌ Hockey API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.response.length} hockey games`);
+      return data.response;
+    },
+  },
+  volleyball: {
+    url: (date) => `https://v1.volleyball.api-sports.io/games?date=${date}`,
+    headers: {
+      "x-apisports-key": "47f4d4ae2ec97f80df18a074084c523b",
+    },
+    processData: (data) => {
+      if (!data || !data.response) {
+        console.error("❌ Volleyball API returned invalid data:", data);
+        return [];
+      }
+      console.log(`✅ Processed ${data.response.length} volleyball games`);
+      return data.response;
+    },
+  },
 };
 
 async function fetchAndCacheData(apiName, params = {}) {
@@ -337,7 +410,7 @@ cleanupStocksChunks();
 app.get("/api/top100/:category", async (req, res) => {
   try {
     const { category } = req.params;
-    const { query } = req.query; // Get the query parameter for GNews categories
+    const { query, date } = req.query;
 
     if (!API_CONFIGS[category]) {
       console.error(`❌ Invalid category requested: ${category}`);
@@ -347,6 +420,37 @@ app.get("/api/top100/:category", async (req, res) => {
     console.log(
       `🎮 Processing request for ${category}${query ? ` (${query})` : ""}`
     );
+
+    // Special handling for sports APIs that use dates
+    if (["basketball", "baseball", "hockey", "volleyball"].includes(category)) {
+      try {
+        const currentDate = date || new Date().toISOString().split("T")[0];
+        // Use the date as part of the cache key
+        const data = await fetchAndCacheData(category, { query: currentDate });
+        return res.json(data);
+      } catch (error) {
+        console.error(`Error fetching ${category} data:`, error);
+        return res.status(500).json({
+          error: `Failed to fetch ${category} data`,
+          details: error.message,
+        });
+      }
+    }
+
+    // Special handling for cricket API
+    if (category === "cricket") {
+      try {
+        // Try to get cached data first
+        const data = await fetchAndCacheData("cricket");
+        return res.json(data);
+      } catch (error) {
+        console.error("Error fetching cricket data:", error);
+        return res.status(500).json({
+          error: "Failed to fetch cricket data",
+          details: error.message,
+        });
+      }
+    }
 
     if (category === "sports") {
       // Check cache first
