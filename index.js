@@ -52,9 +52,25 @@ const API_CONFIGS = {
     url: "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100",
   },
   billionaires: {
-    url: (year) =>
-      `https://forbes400.onrender.com/api/forbes400?limit=100&year=${year}`,
+  url: () => "https://www.forbes.com/forbesapi/person/rtb/0/position/true.json",
+  processData: (data) => {
+    // Forbes API returns { personList: { personsLists: [...] } }
+    if (!data || !data.personList || !data.personList.personsLists) return [];
+    return data.personList.personsLists.slice(0, 100).map((person) => ({
+      name: person.personName,
+      netWorth: person.finalWorth,
+      netWorthDisplay: person.finalWorth ? `$${(parseFloat(person.finalWorth) / 1000).toFixed(1)}B` : "N/A",
+      image: person.person?.squareImage
+        ? person.person.squareImage.startsWith("http")
+          ? person.person.squareImage
+          : `https:${person.person.squareImage}`
+        : null,
+      source: person.source,
+      country: person.countryOfCitizenship,
+      rank: person.rank,
+    }));
   },
+},
   movies: {
     url: "https://imdb-top-100-movies.p.rapidapi.com/",
     headers: {
