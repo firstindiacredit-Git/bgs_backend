@@ -43,7 +43,7 @@ const API_CONFIGS = {
     headers: { "X-Api-Key": "BTOsYx47SEw8rRDvct+x+g==SUy2ivypa6z9mOk1" },
   },
   stocks: {
-    url: "https://finnhub.io/api/v1/stock/symbol?exchange=US&token=ctp4omhr01qhpppjiev0ctp4omhr01qhpppjievg",
+    url: "https://finnhub.io/api/v1/stock/symbol?exchange=US&token=d1icgq9r01qhsrhena9gd1icgq9r01qhsrhenaa0",
     headers: {
       "Content-Type": "application/json",
     },
